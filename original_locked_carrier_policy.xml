@@ -1,0 +1,226 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!-- Carrier Policy for CMCC CSFB+G DSDS configuration -->
+<policy name        = "generic"
+        schema_ver  = "1"
+        policy_ver  = "18.1.4"
+>
+
+  <initial>
+    <actions>
+      <!-- Define the MCCs in which FDD LTE is to be disabled -->
+      <mcc_list name="no_fdd_mccs"> 460 </mcc_list>
+	  
+	  <!-- These are the IMSI PLMNs of Chinese operators that are *not*
+           restricted
+      -->
+      <plmn_list name = "unrestricted_operators">
+        460-00 460-02 460-07 460-08 454-12
+      </plmn_list>
+      
+	  <!-- Define the OOS timer with a 1 minute interval -->
+      <!-- NOTE: Proper functioning of the generic policy requires that there
+           be a timer named "oos".  Do NOT rename this timer.
+      -->
+      <define_timer name = "oos" interval = "2" units = "min" />
+	  
+      <!-- No LTE FDD bands list --> 
+      <rf_band_list name="no_fdd_lte">
+        <gw_bands base="hardware" />
+        <!-- LTE Band: 38, 39, 40, 41, 42, 43 are mapped to Band Bits: 37, 38, 39, 40, 41, 42
+                      respectively.
+                      Refer: sys_sband_lte_e_type in sys.h
+        --> 
+        <lte_bands base="none" >
+          <include> 37 38 39 40 </include>
+        </lte_bands> 
+        <tds_bands base="hardware" />
+      </rf_band_list>
+
+      <!-- All RF bands list -->
+      <rf_band_list name="all_but_tds">
+        <gw_bands  base="hardware" />
+        <lte_bands base="hardware" />
+        <tds_bands base="none" />
+      </rf_band_list>
+
+      <rf_band_list name="rf_bands_gwlt">
+        <gw_bands base="hardware" />
+        <lte_bands base="hardware" />
+        <tds_bands base="hardware" />
+      </rf_band_list>
+
+      <!-- GSM only bands list -->
+      <rf_band_list name="gsm_only">
+        <gw_bands  base="hardware" />
+        <lte_bands base="none" />
+        <tds_bands base="none" />
+      </rf_band_list>
+
+      <!-- Boolean: should we advertise current MCC ? -->
+      <boolean_define name="include_hlos_mcc" initial="true" />
+      
+      <!-- Boolean: should we enforce Full RAT mode ? -->
+      <boolean_define name="pm:xml_full_rat" initial="true" />
+
+      <!-- Configure the device as GWTL DSDS if not already configured -->
+      <device_configuration_if num_sims="2" max_active="1">
+        <config>
+          <subs id="1">
+            <rat_capability base="none">
+              <include> GSM WCDMA TDSCDMA LTE </include>
+            </rat_capability>
+          </subs>
+          <subs id="2">
+            <rat_capability base="none">
+              <include> GSM </include>
+            </rat_capability>
+          </subs>
+        </config>
+      </device_configuration_if>
+
+      <!-- Set initial RAT Capability and RF bands -->
+      <rat_capability_if subs="1" base="none">
+        <include> GSM TDSCDMA LTE </include>
+      </rat_capability_if>
+      <rf_bands_if subs="1" list="no_fdd_lte" />
+
+      <rat_capability_if subs="2" base="none">
+        <include> GSM </include>
+      </rat_capability_if>
+      <rf_bands_if subs="2" list="gsm_only" />
+
+    </actions>
+  </initial>
+
+
+  <!--
+  ====================================================================
+    Rules to handle OOS situations.
+  ====================================================================
+  -->
+
+  <!-- Add for FR-22007 -->
+  
+  <!-- RULE #1 -->
+  <!-- Enforce Full RAT mode if needed when UE is online. Ensure this rule is run after 
+           SIM card is detected to avoid changing configuration prematurely.
+  -->
+  <rule precond="none">
+    <conditions>
+      <phone_operating_mode> ONLINE </phone_operating_mode>
+      <is_subs_mmode subs="1" />
+      <enforce_full_rat />
+    </conditions>
+
+    <actions>
+      <ue_mode subs="1"> CSFB </ue_mode>
+      <svc_mode subs="1"> LIMITED </svc_mode>
+      <rat_capability subs="1" base="config" />
+      <rf_bands subs="1" list="rf_bands_gwlt" />
+      <rat_order subs="1"> W G L T </rat_order>
+    </actions>
+  </rule>
+  
+  <!-- Add for FR-22007 -->  
+  
+  <!-- RULE #1 -->
+  <!-- If OOS on multimode SUBS then then stay in same configuration until OOS timer expires -->
+  <rule precond="SS">
+    <conditions>
+      <not> <service_status_in subs="mmode"> FULL LIMITED LIMITED-REGIONAL </service_status_in> </not>
+    </conditions>
+
+    <actions />
+  </rule>
+
+
+  <!-- RULE #2 -->
+  <!-- Here onwards we have service so allow UE to go Full Service -->
+  <rule precond="SS">
+    <conditions>
+      <true />
+    </conditions>
+
+    <actions> 
+      <svc_mode subs="1"> FULL </svc_mode>
+      <svc_mode subs="2"> FULL </svc_mode>
+  <!-- Add for FR-22007 -->  
+      <rat_order subs="1"> L T W G </rat_order>
+  <!-- Add for FR-22007 --> 
+      <continue />
+    </actions>
+  </rule>
+
+  <!--
+  ===========================================================================  
+    Rules if subs1 is the MMODE subs.
+  ===========================================================================  
+  -->
+  <!-- RULE #3 -->
+  <!-- Chinese operators not in "unrestricted_operators" on mmode subs only get to use GSM -->
+  <rule>
+    <conditions>
+      <is_subs_mmode subs="1" />
+      <imsi_mcc_in subs="1" list="no_fdd_mccs" />
+      <not> <imsi_plmn_in subs="1" list = "unrestricted_operators" /> </not>
+    </conditions>
+    <actions>
+      <rat_capability subs="1" base = "none">
+        <include> GSM </include>
+      </rat_capability>
+      <rf_bands subs="1" list="gsm_only" />
+      <rat_capability subs="2" base="none">
+        <include> GSM </include>
+      </rat_capability>
+      <rf_bands subs="2" list="gsm_only" />
+    </actions>
+  </rule>
+  
+  <!-- RULE #4 -->
+  <!-- If operating in China, exclude FDD LTE bands,exclude WCDMA -->
+  <rule>
+    <conditions>
+      <is_subs_mmode subs="1" />
+      <serving_mcc_in subs="mmode" list="no_fdd_mccs" />
+    </conditions>
+    <actions>
+      <rat_capability subs="1" base="config">
+        <exclude> WCDMA </exclude>
+      </rat_capability>
+      <rf_bands subs="1" list="no_fdd_lte" />
+      
+      <rat_capability subs="2" base="none">
+        <include> GSM </include>
+      </rat_capability>
+      <rf_bands subs="2" list="gsm_only" />
+    </actions>
+  </rule>
+
+  <!-- RULE #5 -->
+  <!-- If not in China, allow all bands, exclude TDSCDMA -->
+  <rule>
+    <conditions>
+      <is_subs_mmode subs="1" />
+    </conditions>
+    <actions>
+      <rat_capability subs="1" base="config">
+        <exclude> TDSCDMA </exclude>
+      </rat_capability>
+      <rf_bands subs="1" list="all_but_tds" />
+      
+      <rat_capability subs="2" base="none">
+        <include> GSM </include>
+      </rat_capability>
+      <rf_bands subs="2" list="gsm_only" />
+    </actions>
+  </rule>
+
+  <!--
+  ===========================================================================  
+    Rules if subs2 is the MMODE subs. - No need because of Cross Mapping
+  ===========================================================================  
+  -->
+  
+</policy>
+ 
